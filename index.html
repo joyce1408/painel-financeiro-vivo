@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1b2a4a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Painel Vivo">
+<title>Painel Financeiro Vivo</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="top"><div class="in">
+  <div><div class="ey">Painel financeiro vivo</div><h1 id="hdrNome">Seu controle financeiro</h1>
+  <p id="hdrContas">Banco do Brasil · Nubank · Cartão Porto</p>
+  <p class="acc2" id="hdrPeriodo"></p>
+  <p class="privacy">🔒 Seus dados ficam só neste aparelho. Nada é enviado para servidor.</p></div>
+  <div class="ref"><div class="ey">Mostrando</div><b id="hdrPer">—</b></div>
+</div></header>
+<nav class="nav" aria-label="Seções"><div class="in" id="nav"></div></nav>
+
+<div class="wrap">
+  <div class="filters" role="group" aria-label="Filtros" id="filtros">
+    <div class="frow">
+      <label>Ano<select id="fAno"></select></label>
+      <label>Mês<select id="fMes"></select></label>
+      <label>Conta<select id="fConta"></select></label>
+      <label>Cartão<select id="fCartao"></select></label>
+      <label>Categoria<select id="fCat"></select></label>
+      <label>Forma de pagamento<select id="fForma"></select></label>
+      <label class="search">🔎 Procurar lançamento<input type="search" id="fBusca" placeholder="Ex.: Apple, adidas, padaria…" autocomplete="off"></label>
+      <button class="btn" id="limpar" type="button">Limpar filtros</button>
+    </div>
+    <div class="chips" id="chips" hidden></div>
+  </div>
+  <main id="view" style="display:grid;gap:18px"><div class="loading">Abrindo seus dados…</div></main>
+</div>
+
+<dialog id="dlg"><div class="dh"><b id="dlgT"></b><button class="x" type="button" data-fechar aria-label="Fechar">×</button></div><div class="db" id="dlgB"></div></dialog>
+<div class="toast" id="toast" hidden role="status"></div>
+<noscript><div class="loading">Este painel precisa de JavaScript.</div></noscript>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

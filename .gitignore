@@ -1,0 +1,5 @@
+data/
+*.json.bak
+node_modules/
+test-up
+painel-dados-validados.json
