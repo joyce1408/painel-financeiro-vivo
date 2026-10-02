@@ -204,3 +204,5 @@ dialog .x{border:0;background:transparent;font-size:1.4rem;color:var(--muted);li
 code{font-size:.82em;background:var(--surface-2);padding:1px 5px;border-radius:4px}
 .cmp td.up{color:var(--neg)}.cmp td.down{color:var(--pos)}
 .privacy{font-size:.76rem;color:#b9c5dc;margin-top:6px}
+
+.top .sync{display:block;color:#cfd8ea;font-size:.78rem;font-weight:700;text-decoration:none;margin-top:4px}.top .sync.erro{color:#f3a7a2}

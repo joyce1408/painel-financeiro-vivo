@@ -15,6 +15,17 @@ Os módulos JavaScript não funcionam abrindo o `index.html` direto do disco (`f
 
 Cada aparelho tem a própria base. Para passar dados de um aparelho para outro, use Backup › Baixar backup em um e Backup › Restaurar no outro.
 
+## Sincronizar entre aparelhos (opcional)
+
+Para duas pessoas acompanharem o mesmo painel. Os dados são cifrados no aparelho (AES-256-GCM, chave derivada da senha da família com PBKDF2-SHA256, 600 mil iterações) antes de ir para o Supabase. A nuvem guarda só um "cofre" ilegível; a senha nunca é salva nem enviada.
+
+1. Crie um projeto grátis em supabase.com.
+2. SQL Editor › cole `supabase.sql` › Run.
+3. No painel: Sincronizar › cole o Project URL e a chave anon/publishable › senha da família › Criar sincronização.
+4. Copiar convite › envie para o outro celular › ele abre, digita a senha e toca em Entrar.
+
+Cada aparelho continua com a base completa e funciona sem internet. Alterações em registros diferentes se juntam; no mesmo registro vale a mais recente. Se a senha for esquecida, a cópia da nuvem não pode ser aberta (os aparelhos continuam com os dados). No plano grátis o Supabase pode pausar projetos parados; é só reativar no site.
+
 ## O que lê
 
 | Banco | Formato |

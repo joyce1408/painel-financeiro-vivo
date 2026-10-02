@@ -16,9 +16,11 @@ import * as tarifas from './views/tarifas.js';
 import * as pendencias from './views/pendencias.js';
 import * as importar from './views/importar.js';
 import * as backup from './views/backup.js';
+import * as sincronizarV from './views/sincronizar.js';
+import { iniciarSync, aoMudarSync, estado as estadoSync } from './sync.js';
 
-const VIEWS = { visao, entradas: entradasV, saidas, credito, debito, faturas, categorias, parcelamentos: parcelamentosV, tarifas, pendencias, importar, backup };
-const SEM_FILTRO = new Set(['importar', 'backup', 'pendencias']);
+const VIEWS = { visao, entradas: entradasV, saidas, credito, debito, faturas, categorias, parcelamentos: parcelamentosV, tarifas, pendencias, importar, sincronizar: sincronizarV, backup };
+const SEM_FILTRO = new Set(['importar', 'backup', 'pendencias', 'sincronizar']);
 const s = { ano: '', mes: '', conta: '', cartao: '', cat: '', forma: '', busca: '' };
 let rota = 'visao';
 
@@ -53,7 +55,15 @@ function filtros() {
   $('chips').innerHTML = '<span class="lbl">Filtros ativos:</span>' + ch.map(c => `<span class="chip">${esc(c[1])}<button type="button" data-k="${c[0]}" aria-label="Remover filtro ${esc(c[1])}">×</button></span>`).join('');
   $('filtros').hidden = SEM_FILTRO.has(rota);
 }
+function cabecalhoSync() {
+  const e = estadoSync, el = $('hdrSync'), pv = $('hdrPriv'); if (!el) return;
+  if (!e.ligado) { el.textContent = ''; pv.textContent = '🔒 Seus dados ficam só neste aparelho. Nada é enviado para servidor.'; return; }
+  pv.textContent = '🔒 Dados criptografados neste aparelho; a nuvem guarda só uma cópia ilegível.';
+  el.textContent = e.sincronizando ? '☁ sincronizando…' : e.erro ? '☁ erro na sincronização' : e.offline ? '☁ sem internet' : e.ultima ? '☁ sincronizado ' + new Date(e.ultima).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '☁ ligado';
+  el.classList.toggle('erro', !!e.erro);
+}
 function cabecalho() {
+  cabecalhoSync();
   const bb = B.contas.find(c => c.id === 'BB');
   $('hdrNome').textContent = bb && bb.titular ? bb.titular : 'Seu controle financeiro';
   $('hdrContas').textContent = B.contas.map(c => c.nome).join(' · ') || 'Nenhuma conta ainda';
@@ -63,7 +73,7 @@ function cabecalho() {
 }
 let gen = 0;
 export function render() {
-  if (!B.transacoes.length && !['importar', 'backup'].includes(rota)) rota = 'importar';
+  if (!B.transacoes.length && !['importar', 'backup', 'sincronizar'].includes(rota)) rota = 'importar';
   nav(); filtros(); cabecalho();
   const v = VIEWS[rota] || visao;
   const main = $('view');
@@ -78,7 +88,7 @@ export function render() {
 }
 
 function rotear() {
-  const h = location.hash.replace('#', '') || 'visao';
+  const h = location.hash.replace('#', '').split('?')[0] || 'visao';
   const novaRota = VIEWS[h] ? h : 'visao';
   const mudou = novaRota !== rota; rota = novaRota; render(); if (mudou) window.scrollTo(0, 0);
 }
@@ -142,10 +152,12 @@ async function iniciar() {
     ligarFiltros();
     aoMudar(() => { if (document.readyState !== 'loading') render(); });
     window.addEventListener('hashchange', rotear);
+    aoMudarSync(() => { cabecalhoSync(); if (rota === 'sincronizar' && !document.querySelector('[data-sync-form]')) render(); });
     rotear();
+    iniciarSync(async () => { await carregar(); });
     if (migrou) toast('Seus dados validados (jan–ago/2026) foram trazidos para este aparelho.', 5000);
     if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('./sw.js').catch(() => {});
-    window.__painel = { B, s, pronto: true };
+    window.__painel = { B, s, sync: estadoSync, pronto: true };
   } catch (e) {
     console.error(e);
     $('view').innerHTML = `<div class="panel"><b>Não foi possível abrir o banco de dados local.</b><p class="note">${esc(e.message)}</p><p class="note">No iPhone, o modo de navegação privada bloqueia o armazenamento. Abra numa aba normal do Safari ou pelo ícone na tela de início.</p></div>`;

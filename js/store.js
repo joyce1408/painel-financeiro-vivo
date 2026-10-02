@@ -31,7 +31,7 @@ export async function importarSeed(seed) {
   const ops = [];
   for (const s of ['contas', 'faturas', 'transacoes', 'categorias', 'regras', 'importacoes', 'arquivos', 'origens']) for (const o of seed[s] || []) ops.push({ store: s, put: o });
   ops.push({ store: 'meta', put: { chave: 'migracao', valor: { em: new Date().toISOString(), versaoSeed: seed.versao, geradoEm: seed.geradoEm } } });
-  for (let i = 0; i < ops.length; i += 1500) await gravar(ops.slice(i, i + 1500));
+  for (let i = 0; i < ops.length; i += 1500) await gravar(ops.slice(i, i + 1500), { carimbar: false });
   persistir();
 }
 
@@ -94,15 +94,20 @@ export async function salvarCategoria(c, nomeAntigo) {
   await gravar(ops); await reler();
 }
 
-export async function backupJSON() { return { app: 'painel-financeiro-vivo', versao: 1, exportadoEm: agora(), dados: await exportar() }; }
+export async function backupJSON() { const d = await exportar(); d.meta = (d.meta || []).filter(m => !LOCAIS.includes(m.chave)); return { app: 'painel-financeiro-vivo', versao: 1, exportadoEm: agora(), dados: d }; }
+const LOCAIS = ['sync', 'ultimoBackup'];
+async function guardarLocais() { const ms = []; for (const k of LOCAIS) { const m = await um('meta', k); if (m) ms.push({ store: 'meta', put: m }); } return ms; }
 // Aceita um backup do painel ou o arquivo de dados validados (migração do Raio-X).
 export async function restaurarBackup(obj) {
+  const locais = await guardarLocais();
   if (obj && obj.app === 'painel-financeiro-vivo' && obj.dados && Array.isArray(obj.dados.transacoes)) {
     await restaurar(obj.dados);
     if (!obj.dados.meta || !obj.dados.meta.find(m => m.chave === 'migracao')) await gravar([{ store: 'meta', put: { chave: 'migracao', valor: { em: agora(), restaurado: true } } }]);
   } else if (obj && Array.isArray(obj.transacoes) && obj.geradoEm && Array.isArray(obj.origens)) {
     await limparTudo(); await importarSeed(obj);
   } else throw new Error('Este arquivo não é um backup do Painel Financeiro Vivo nem o arquivo de dados validados.');
+  if (locais.length) await gravar(locais);
   await reler();
 }
+// Apagar tudo também desliga a sincronização neste aparelho (o cofre na nuvem não é apagado).
 export async function apagarTudo() { await limparTudo(); await gravar([{ store: 'meta', put: { chave: 'migracao', valor: { em: agora(), zerado: true } } }]); await reler(); }
