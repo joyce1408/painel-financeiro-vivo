@@ -1,5 +1,5 @@
 // Fonte única de verdade em memória, carregada do IndexedDB. Toda alteração passa por aqui e é gravada no banco local.
-import { abrir, todos, gravar, um, restaurar, limparTudo, exportar, persistir } from './db.js';
+import { abrir, todos, gravar, um, restaurar, limparTudo, exportar, persistir, copiaDeSeguranca } from './db.js';
 import { uid, norm, cents } from './utils.js';
 import { statusFaturas } from './importer.js';
 
@@ -98,8 +98,12 @@ export async function backupJSON() { const d = await exportar(); d.meta = (d.met
 const LOCAIS = ['sync', 'ultimoBackup'];
 async function guardarLocais() { const ms = []; for (const k of LOCAIS) { const m = await um('meta', k); if (m) ms.push({ store: 'meta', put: m }); } return ms; }
 // Aceita um backup do painel ou o arquivo de dados validados (migração do Raio-X).
+// Antes de substituir qualquer coisa, guarda uma cópia automática do que existe hoje neste aparelho.
 export async function restaurarBackup(obj) {
   const locais = await guardarLocais();
+  const valido = (obj && obj.app === 'painel-financeiro-vivo' && obj.dados && Array.isArray(obj.dados.transacoes)) || (obj && Array.isArray(obj.transacoes) && obj.geradoEm && Array.isArray(obj.origens));
+  if (!valido) throw new Error('Este arquivo não é um backup do Painel Financeiro Vivo nem o arquivo de dados validados.');
+  if ((await todos('transacoes')).length) await copiaDeSeguranca('antes de restaurar um backup');
   if (obj && obj.app === 'painel-financeiro-vivo' && obj.dados && Array.isArray(obj.dados.transacoes)) {
     await restaurar(obj.dados);
     if (!obj.dados.meta || !obj.dados.meta.find(m => m.chave === 'migracao')) await gravar([{ store: 'meta', put: { chave: 'migracao', valor: { em: agora(), restaurado: true } } }]);
@@ -110,4 +114,4 @@ export async function restaurarBackup(obj) {
   await reler();
 }
 // Apagar tudo também desliga a sincronização neste aparelho (o cofre na nuvem não é apagado).
-export async function apagarTudo() { await limparTudo(); await gravar([{ store: 'meta', put: { chave: 'migracao', valor: { em: agora(), zerado: true } } }]); await reler(); }
+export async function apagarTudo() { if ((await todos('transacoes')).length) await copiaDeSeguranca('antes de apagar tudo'); await limparTudo(); await gravar([{ store: 'meta', put: { chave: 'migracao', valor: { em: agora(), zerado: true } } }]); await reler(); }

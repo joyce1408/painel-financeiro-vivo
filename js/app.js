@@ -57,10 +57,10 @@ function filtros() {
 }
 function cabecalhoSync() {
   const e = estadoSync, el = $('hdrSync'), pv = $('hdrPriv'); if (!el) return;
-  if (!e.ligado) { el.textContent = ''; pv.textContent = '🔒 Seus dados ficam só neste aparelho. Nada é enviado para servidor.'; return; }
+  if (!e.ligado) { el.textContent = e.erro ? '☁ ' + e.erro : ''; pv.textContent = '🔒 Seus dados ficam só neste aparelho. Nada é enviado para servidor.'; return; }
   pv.textContent = '🔒 Dados criptografados neste aparelho; a nuvem guarda só uma cópia ilegível.';
-  el.textContent = e.sincronizando ? '☁ sincronizando…' : e.erro ? '☁ erro na sincronização' : e.offline ? '☁ sem internet' : e.ultima ? '☁ sincronizado ' + new Date(e.ultima).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '☁ ligado';
-  el.classList.toggle('erro', !!e.erro);
+  el.textContent = e.sincronizando ? '☁ sincronizando…' : e.bloqueio ? '☁ pausada: confirme' : e.erro ? '☁ pausada: erro' : (e.offline ? '☁ sem internet' : e.ultima ? '☁ sincronizado ' + new Date(e.ultima).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '☁ ligado') + (e.pendentes ? ` · ${e.pendentes} pendente${e.pendentes > 1 ? 's' : ''}` : '');
+  el.classList.toggle('erro', !!(e.erro || e.bloqueio));
 }
 function cabecalho() {
   cabecalhoSync();
