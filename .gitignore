@@ -1,0 +1,29 @@
+data/
+*.json.bak
+node_modules/
+test-up
+painel-dados-validados.json
+node_modules
+tools/local/
+
+# dados pessoais e arquivos financeiros (nunca publicar)
+painel-dados-*.json
+regras-pessoais*.json
+painel-backup-*.json
+backup*.json
+*.csv
+*.ofx
+*.pdf
+*.heic
+*.HEIC
+IMG_*
+Extrato*
+Ext_cc*
+Nubank_*
+fatura*
+# credenciais
+.env
+.env.*
+*.pem
+*.key
+service_role*
