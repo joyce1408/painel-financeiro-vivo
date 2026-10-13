@@ -16,11 +16,9 @@ backup*.json
 *.pdf
 *.heic
 *.HEIC
-IMG_*
-Extrato*
-Ext_cc*
-Nubank_*
-fatura*
+IMG_*.png
+IMG_*.jpg
+IMG_*.jpeg
 # credenciais
 .env
 .env.*
