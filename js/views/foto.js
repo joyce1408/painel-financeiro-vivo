@@ -9,7 +9,7 @@ import { lerTextoFatura, juntarPaginas } from '../parsers/texto-fatura.js';
 import { prepararImportacao } from '../importer.js';
 
 let E = novo();
-function novo() { return { fase: 'inicio', imagens: [], conta: '', venc: '', progresso: '', erro: '', linhas: [], total: null, pagamentos: [], ignoradas: [], repetidas: 0, texto: '', aviso: '' }; }
+function novo() { return { fase: 'inicio', imagens: [], conta: '', venc: '', progresso: '', erro: '', linhas: [], total: null, pagamentos: [], ignoradas: [], repetidas: 0, texto: '', aviso: '', origem: null, fila: [], acumulados: [], extras: [], avisos: [] }; }
 export const ativo = () => E.fase !== 'inicio';
 function limpar() { for (const i of E.imagens) { if (i.url) URL.revokeObjectURL(i.url); if (i.urlOriginal) URL.revokeObjectURL(i.urlOriginal); } E = novo(); }
 
@@ -47,6 +47,40 @@ export async function adicionarPDFEscaneado(file, ctx) {
   } catch (e) { E.fase = 'inicio'; toast('Não foi possível abrir o PDF: ' + e.message, 6000); ctx.rerender(); }
 }
 
+// ---------- arquivos sem leitor próprio (CSV, OFX ou PDF de qualquer banco) ----------
+// Cada arquivo passa por esta mesma revisão, um de cada vez; os arquivos reconhecidos (extras) entram junto no final.
+const fmt = v => (v < 0 ? '-' : '') + Math.abs(v).toFixed(2).replace('.', ',');
+const PAG_FATURA = /\bpagamento (recebido|efetuado|da fatura|de fatura)|\bpagto\.? fatura|\bpag\.? fatura/i;
+export function abrirGenericos(genericos, extras, ctx) { limpar(); E.fila = [...genericos]; E.extras = extras; proximo(ctx); }
+function proximo(ctx) {
+  const g = E.fila.shift(), G = g.generico;
+  const fica = { fila: E.fila, acumulados: E.acumulados, extras: E.extras };
+  E = { ...novo(), ...fica, origem: { nome: g.nome, hash: g.hash, tamanho: g.tamanho, formato: G.formato }, avisos: [...(G.avisos || [])], conta: G.conta || '' };
+  if (G.colunas) E.avisos.push(`Colunas usadas: data = “${G.colunas.data}”, descrição = “${G.colunas.descricao}”, valor = “${G.colunas.valor}”.`);
+  if (G.venc) { E.venc = G.venc; E.vencLido = true; }
+  if (G.tipo === 'texto') { E.paginas = G.paginas; E.texto = G.paginas.map(p => p.map(l => l.texto).join('\n')).join('\n\n'); interpretar(G.paginas, ctx); return; }
+  E.texto = G.linhas.map(l => l.texto).join('\n');
+  const cartao = G.convencao === 'compra-positiva' || G.cartao;
+  const sinal = G.convencao === 'compra-positiva' ? -1 : 1;
+  if (G.convencao === 'compra-positiva') E.avisos.push('Neste arquivo as compras vêm com valor positivo (padrão de fatura de cartão): elas foram trocadas para negativo, que é como o painel registra um gasto. Se estiver ao contrário, use “Inverter sinais”.');
+  E.ignoradas = G.ignoradas || [];
+  for (const l of G.linhas) {
+    const v = Math.round(l.valor * sinal * 100) / 100;
+    if (cartao && v > 0 && PAG_FATURA.test(l.descricao)) { E.pagamentos.push({ texto: l.texto, valor: v }); continue; }
+    E.linhas.push({ id: E.linhas.length, incluir: true, data: l.data, descricao: l.descricao, valor: fmt(v), parcela: l.parcela || '', cartao4: '', duvidas: [...(l.duvidas || [])], texto: l.texto });
+  }
+  marcarDuplicatas(ctx.B);
+  E.fase = E.linhas.length ? 'revisao' : 'vazio';
+  ctx.rerender();
+}
+function finalizar(definirPrevia, B, info) {
+  const lidos = [...E.extras, ...E.acumulados];
+  limpar();
+  if (!lidos.length) return;
+  const prev = prepararImportacao(lidos, B); if (info) prev.foto = info;
+  definirPrevia(prev);
+}
+
 // ---------- leitura ----------
 async function lerAutomatico(ctx) {
   E.fase = 'lendo'; E.erro = ''; ctx.rerender();
@@ -68,15 +102,15 @@ function interpretar(paginas, ctx) {
   const B = ctx.B;
   const venc = E.venc ? { ano: +E.venc.slice(0, 4), mes: +E.venc.slice(5, 7) } : {};
   const tipo = E.conta === 'BB' ? 'extrato' : 'fatura';
-  let r = juntarPaginas(paginas.map(p => lerTextoFatura(p, venc, { tipo })));
+  let r = juntarPaginas(paginas.map(p => lerTextoFatura(p, venc, { tipo, ignorarSemData: !!E.origem })));
   // instituição e vencimento lidos da própria foto, se você ainda não escolheu
   if (!E.conta && r.instituicao) E.conta = r.instituicao;
   if (r.vencimento && (!E.venc || E.vencAuto)) {
     const a = r.vencimento.a || (E.venc ? +E.venc.slice(0, 4) : new Date().getFullYear());
     E.venc = iso(a, r.vencimento.m, r.vencimento.d); E.vencLido = true;
-    r = juntarPaginas(paginas.map(p => lerTextoFatura(p, { ano: a, mes: r.vencimento.m }, { tipo: E.conta === 'BB' ? 'extrato' : 'fatura' })));
+    r = juntarPaginas(paginas.map(p => lerTextoFatura(p, { ano: a, mes: r.vencimento.m }, { tipo: E.conta === 'BB' ? 'extrato' : 'fatura', ignorarSemData: !!E.origem })));
   }
-  if (!E.conta) E.conta = 'Nu';
+  if (!E.conta && !E.origem) E.conta = 'Nu';
   if (!E.venc && E.conta !== 'BB') E.venc = vencPadrao(E.conta, B);
   Object.assign(E, { total: r.total, pagamentos: r.pagamentos, ignoradas: r.ignoradas, repetidas: r.repetidas });
   E.linhas = r.linhas.map((l, i) => ({ id: i, incluir: true, data: l.data || '', descricao: l.descricao, valor: l.valor == null ? '' : l.valor.toFixed(2).replace('.', ','), parcela: l.parcela, cartao4: l.cartao4, duvidas: [...l.duvidas], texto: l.texto, foto: l.foto }));
@@ -109,7 +143,8 @@ async function continuar(ctx, definirPrevia) {
     if (numero(l.valor) == null) erros.push(`linha ${l.id + 1}: valor`);
     if (!l.descricao || l.descricao.trim().length < 2) erros.push(`linha ${l.id + 1}: descrição`);
   }
-  if (!inc.length) return toast('Nenhum lançamento marcado para importar.');
+  if (!inc.length) return toast('Nenhum lançamento marcado para importar. Para deixar este arquivo de fora, use “Pular este arquivo”.');
+  if (!E.conta) { E.aviso = 'Escolha a conta ou o cartão deste arquivo.'; ctx.rerender(); return; }
   if (erros.length) { E.aviso = 'Corrija antes de continuar: ' + erros.slice(0, 6).join(', ') + (erros.length > 6 ? '…' : ''); ctx.rerender(); return; }
   if (E.conta !== 'BB' && !/^\d{4}-\d{2}-\d{2}$/.test(E.venc)) { E.aviso = 'Informe o vencimento da fatura.'; ctx.rerender(); return; }
   const conta = E.conta, tipo = conta === 'BB' ? 'extrato' : 'fatura';
@@ -123,16 +158,19 @@ async function continuar(ctx, definirPrevia) {
     const id = `${conta}-${E.venc.slice(0, 7)}`;
     fatura = B.faturas.find(f => f.id === id) || { id, cartao: conta, competencia: E.venc.slice(0, 7), periodoInicio: datas[0], fechamento: null, vencimento: E.venc, proximoFechamento: null, totalAPagar: E.total, faturaAnterior: null, pagamentoRecebido: null, totalCompras: null, outrosLancamentos: null, pagamentos: [], origem: 'foto' };
   }
-  const doc = { instituicao: CONTAS[conta] || conta, conta, tipo, formato: 'Foto', periodoInicio: datas[0], periodoFim: datas[datas.length - 1], linhas, fatura };
-  const hash = await sha256(new TextEncoder().encode(E.imagens.map(i => i.hash).sort().join('|') || E.texto));
+  const O = E.origem;
+  const doc = { instituicao: CONTAS[conta] || conta, conta, tipo, formato: O ? `${O.formato} (leitura genérica)` : 'Foto', revisado: true, periodoInicio: datas[0], periodoFim: datas[datas.length - 1], linhas, fatura };
+  const hash = O ? O.hash : await sha256(new TextEncoder().encode(E.imagens.map(i => i.hash).sort().join('|') || E.texto));
+  const onde = O ? 'no arquivo' : 'na foto';
   const conferencia = E.total != null && tipo === 'fatura'
-    ? { ok: Math.abs(soma - E.total) < 0.005 ? true : null, texto: Math.abs(soma - E.total) < 0.005 ? `Soma dos lançamentos (${brl(soma)}) = total lido na foto. Confere.` : `Soma dos lançamentos marcados: ${brl(soma)}. Total lido na foto: ${brl(E.total)} (o total da fatura pode incluir saldo anterior, juros ou lançamentos de outras fotos).` }
-    : { ok: null, texto: `Sem total na foto para conferir. Soma dos lançamentos marcados: ${brl(soma)}.` };
-  const nome = E.imagens.length ? `Foto da fatura ${CONTAS[conta] || conta}${E.imagens.length > 1 ? ` (${E.imagens.length} imagens)` : ''}` : `Texto colado (${CONTAS[conta] || conta})`;
-  const prev = prepararImportacao([{ nome, hash, tamanho: E.imagens.reduce((a, i) => a + i.tamanho, 0), doc, leitor: 'Foto (OCR/Texto ao Vivo) com revisão', conferencia }], B);
-  prev.foto = { lidos: E.linhas.length, desmarcados: E.linhas.length - inc.length, duvidas: inc.filter(l => l.duvidas.length).length, repetidas: E.repetidas };
-  limpar();
-  definirPrevia(prev);
+    ? { ok: Math.abs(soma - E.total) < 0.005 ? true : null, texto: Math.abs(soma - E.total) < 0.005 ? `Soma dos lançamentos (${brl(soma)}) = total lido ${onde}. Confere.` : `Soma dos lançamentos marcados: ${brl(soma)}. Total lido ${onde}: ${brl(E.total)} (o total da fatura pode incluir saldo anterior, juros ou lançamentos de outras páginas).` }
+    : { ok: null, texto: `Sem total ${onde} para conferir. Soma dos lançamentos marcados: ${brl(soma)}.` };
+  const nome = O ? O.nome : E.imagens.length ? `Foto da fatura ${CONTAS[conta] || conta}${E.imagens.length > 1 ? ` (${E.imagens.length} imagens)` : ''}` : `Texto colado (${CONTAS[conta] || conta})`;
+  const lido = { nome, hash, tamanho: O ? O.tamanho : E.imagens.reduce((a, i) => a + i.tamanho, 0), doc, leitor: O ? `Leitura genérica (${O.formato}) com a sua revisão` : 'Foto (OCR/Texto ao Vivo) com revisão', conferencia };
+  const info = O ? null : { lidos: E.linhas.length, desmarcados: E.linhas.length - inc.length, duvidas: inc.filter(l => l.duvidas.length).length, repetidas: E.repetidas };
+  E.acumulados.push(lido);
+  if (E.fila.length) { proximo(ctx); window.scrollTo(0, 0); return; }
+  finalizar(definirPrevia, B, info);
 }
 
 // ---------- tela ----------
@@ -147,10 +185,11 @@ export function render({ B }) {
     <p class="note">Tire a foto de frente, com boa luz e sem reflexo; uma foto por tela ou página. Pode escolher várias fotos da mesma fatura: lançamentos repetidos entre elas entram uma vez só. Depois da leitura você confere e corrige cada lançamento antes de importar. As fotos não são guardadas nem enviadas.</p></div>`;
   if (E.fase === 'preparando') return `<div class="panel"><h2>Fatura por foto</h2><p class="note">Abrindo as imagens…</p></div>`;
   const miniaturas = E.imagens.length ? `<div class="fotos">${E.imagens.map((i, n) => `<figure><img src="${i.url}" alt="Foto ${n + 1}"><figcaption>${n + 1}. ${esc(i.nome)}${i.contrasteBaixo ? '<br><span class="neg">pouco contraste: pode não dar para ler</span>' : ''}</figcaption></figure>`).join('')}</div>` : '';
-  const config = `<div class="form"><label>Conta ou cartão<select data-conta><option value="">Descobrir pela foto</option>${opConta}</select></label>
+  const config = `<div class="form"><label>Conta ou cartão<select data-conta><option value="">${E.origem ? 'Escolha…' : 'Descobrir pela foto'}</option>${opConta}</select></label>
       ${E.conta === 'BB' ? '' : `<label>Vencimento da fatura<input type="date" data-venc value="${esc(E.venc)}"></label>`}</div>
       <p class="note">${E.conta === 'BB' ? 'Extrato de conta: cada lançamento entra pela data dele.' : 'A fatura é definida pelo vencimento (não pela data de cada compra). Se a foto mostrar o vencimento, ele é lido automaticamente.'}</p>`;
-  const sair = `<button class="btn ghost" type="button" data-foto-cancelar>Cancelar</button>`;
+  const sair = E.origem ? `<button class="btn ghost" type="button" data-foto-pular>Pular este arquivo</button>` : `<button class="btn ghost" type="button" data-foto-cancelar>Cancelar</button>`;
+  const origem = E.origem ? `<div class="banner">“${esc(E.origem.nome)}” (${esc(E.origem.formato)}) não tem leitor próprio: foi lido de forma genérica. Confira a conta, o vencimento, os sinais e os valores antes de importar. Nada é gravado sem a sua confirmação.${E.fila.length ? ` Depois deste: mais ${E.fila.length} arquivo(s).` : ''}</div>${E.avisos.map(a => `<p class="note">${esc(a)}</p>`).join('')}` : '';
   if (E.fase === 'fotos' || E.fase === 'lendo') {
     const permitido = B.meta && B.meta.ocrPermitido;
     return `<div class="panel"><h2>Fatura por foto <small>${E.imagens.length} imagem(ns)</small></h2>${miniaturas}${config}
@@ -165,7 +204,7 @@ export function render({ B }) {
       ${E.imagens.length ? `<div class="fotos grande">${E.imagens.map((i, n) => `<figure><img src="${i.urlOriginal}" alt="Foto ${n + 1}"></figure>`).join('')}</div>` : ''}
       ${config}<label class="fl">Texto copiado<textarea data-texto rows="10" placeholder="Cole aqui o texto da fatura">${esc(E.texto)}</textarea></label>
       <div class="acts"><button class="btn pri" type="button" data-ler-colado>Ler texto</button>${sair}</div></div>`;
-  if (E.fase === 'vazio') return `<div class="panel"><h2>Não deu para ler lançamentos</h2>
+  if (E.fase === 'vazio') return `<div class="panel"><h2>Não deu para ler lançamentos${E.origem ? ` <small>${esc(E.origem.nome)}</small>` : ''}</h2>
       <p>Nenhuma linha com data e valor foi reconhecida${E.texto.trim() ? '' : ' (a imagem parece sem texto legível)'}. Nada foi inventado nem importado.</p>
       <ul class="note" style="margin:0;padding-left:18px"><li>Tire outra foto mais de perto, de frente, com boa luz e sem reflexo.</li><li>Se a fatura for do app, prefira o print da tela (é mais nítido que foto da tela).</li><li>Se tiver o PDF da fatura, envie o PDF: a leitura é exata.</li></ul>
       ${E.texto.trim() ? `<details class="sec"><summary><span><span class="car">▸</span>Texto que foi lido</span></summary><div class="in"><pre style="white-space:pre-wrap;font-size:.78rem;margin:0">${esc(E.texto.slice(0, 4000))}</pre></div></details>` : ''}
@@ -183,13 +222,13 @@ export function render({ B }) {
       <td>${l.dup ? chip(l.dup) + ' ' : ''}${l.duvidas.map(chip).join(' ')}${l.texto ? `<div class="note" title="texto lido">“${esc(l.texto.slice(0, 90))}”</div>` : ''}</td></tr>`;
   return `<div class="panel"><h2>Confira antes de importar <small>${E.linhas.length} lançamento(s) lido(s)${E.imagens.length ? ` de ${E.imagens.length} imagem(ns)` : ''}</small></h2>
     <div class="res"><div><span>Lidos</span><b>${E.linhas.length}</b></div><div><span>Marcados</span><b>${inc.length}</b></div><div><span>Com dúvida</span><b>${duv}</b></div><div><span>Possíveis duplicatas</span><b>${dups}</b></div><div><span>Repetidos entre fotos</span><b>${E.repetidas}</b></div><div><span>Soma marcada</span><b style="font-size:1rem">${brl(soma)}</b></div></div>
-    ${config}
-    ${E.total != null ? `<p class="note">Total lido na foto: <b>${brl(E.total)}</b> · soma dos marcados: <b>${brl(soma)}</b> ${Math.abs(E.total - soma) < 0.005 ? '<span class="pos">✓ confere</span>' : '<span class="neg">diferente (confira se falta alguma linha ou foto; o total pode incluir saldo anterior ou juros)</span>'}</p>` : ''}
-    ${E.pagamentos.length ? `<p class="note">${E.pagamentos.length} pagamento(s) de fatura encontrados na foto não entram como gasto.</p>` : ''}
+    ${origem}${config}
+    ${E.total != null ? `<p class="note">Total lido ${E.origem ? 'no arquivo' : 'na foto'}: <b>${brl(E.total)}</b> · soma dos marcados: <b>${brl(soma)}</b> ${Math.abs(E.total - soma) < 0.005 ? '<span class="pos">✓ confere</span>' : '<span class="neg">diferente (confira se falta alguma linha ou foto; o total pode incluir saldo anterior ou juros)</span>'}</p>` : ''}
+    ${E.pagamentos.length ? `<p class="note">${E.pagamentos.length} pagamento(s) de fatura encontrados ${E.origem ? 'no arquivo' : 'na foto'} não entram como gasto.</p>` : ''}
     <p class="note">Sinais: compra = valor negativo (ex.: -23,40); estorno/crédito = positivo. Linhas com aviso em vermelho precisam da sua conferência. Os desmarcados não são importados. Valores e datas vazios não são preenchidos por conta própria.</p>
     ${E.aviso ? `<div class="banner" style="border-left-color:var(--neg)">${esc(E.aviso)}</div>` : ''}
     <div class="tbl"><table class="rev"><tr><th></th><th>Data</th><th>Descrição</th><th class="r">Valor</th><th>Parcela</th><th>Cartão</th><th>Avisos</th></tr>${E.linhas.map(linha).join('')}</table></div>
-    <div class="acts"><button class="btn sm ghost" type="button" data-nova-linha>+ Adicionar linha</button></div>
+    <div class="acts"><button class="btn sm ghost" type="button" data-nova-linha>+ Adicionar linha</button><button class="btn sm ghost" type="button" data-inverter>Inverter sinais</button></div>
     ${E.ignoradas.length ? `<details class="sec"><summary><span><span class="car">▸</span>Linhas ignoradas (${E.ignoradas.length})</span></summary><div class="in"><ul class="note" style="margin:0;padding-left:18px">${E.ignoradas.map(i => `<li>${esc(i.texto)} — ${esc(i.motivo)}</li>`).join('')}</ul></div></details>` : ''}
     <div class="acts"><button class="btn pri" type="button" data-continuar>Continuar para a importação (${inc.length})</button>${sair}</div></div>`;
 }
@@ -197,9 +236,11 @@ export function render({ B }) {
 export function ligar(root, ctx, definirPrevia) {
   root.querySelectorAll('[data-foto]').forEach(inp => inp.onchange = () => { const fs = [...inp.files]; inp.value = ''; if (fs.length) adicionarImagens(fs, ctx); });
   const q = s => root.querySelector(s);
-  if (q('[data-conta]')) q('[data-conta]').onchange = e => { E.conta = e.target.value; if (!E.venc && E.conta && E.conta !== 'BB') { E.venc = vencPadrao(E.conta, ctx.B); E.vencAuto = true; } if (E.fase === 'revisao') marcarDuplicatas(ctx.B); ctx.rerender(); };
+  if (q('[data-conta]')) q('[data-conta]').onchange = e => { E.conta = e.target.value; if (E.origem && E.paginas) { interpretar(E.paginas, ctx); return; } if (!E.venc && E.conta && E.conta !== 'BB') { E.venc = vencPadrao(E.conta, ctx.B); E.vencAuto = true; } if (E.fase === 'revisao') marcarDuplicatas(ctx.B); ctx.rerender(); };
   if (q('[data-venc]')) q('[data-venc]').onchange = e => { E.venc = e.target.value; E.vencAuto = false; };
   if (q('[data-foto-cancelar]')) q('[data-foto-cancelar]').onclick = () => { limpar(); ctx.rerender(); };
+  if (q('[data-foto-pular]')) q('[data-foto-pular]').onclick = () => { if (E.fila.length) { proximo(ctx); return; } finalizar(definirPrevia, ctx.B, null); ctx.rerender(); };
+  if (q('[data-inverter]')) q('[data-inverter]').onclick = () => { for (const l of E.linhas) { const v = numero(l.valor); if (v != null) l.valor = fmt(-v); } marcarDuplicatas(ctx.B); ctx.rerender(); };
   if (q('[data-colar]')) q('[data-colar]').onclick = () => { E.fase = 'colar'; ctx.rerender(); };
   if (q('[data-colar-direto]')) q('[data-colar-direto]').onclick = () => { E.fase = 'colar'; ctx.rerender(); };
   if (q('[data-ler-colado]')) q('[data-ler-colado]').onclick = () => { const t = q('[data-texto]').value; if (!t.trim()) return toast('Cole o texto primeiro.'); lerColado(t, ctx); };

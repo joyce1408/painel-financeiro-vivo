@@ -51,7 +51,7 @@ export function render({ B }) {
   const boasVindas = B.transacoes.length ? '' : `<div class="panel" style="border-left:4px solid var(--gold)"><h2>Primeiro uso neste aparelho</h2><p class="note">A base está vazia. Para começar com os seus dados de janeiro a agosto de 2026 já conferidos, carregue o arquivo <code>painel-dados-validados.json</code> (ele fica com você, fora do site). Ou importe seus extratos e faturas abaixo para começar do zero. Se outra pessoa já usa o painel com sincronização, entre por <a href="#sincronizar">Sincronizar</a>.</p><div class="acts"><label class="btn pri">Carregar dados validados<input type="file" accept=".json,application/json" data-rest-ini hidden></label></div></div>`;
   return boasVindas + (ultimo ? `<div class="panel" style="border-left:4px solid var(--pos)"><h2>Importação gravada <small>${dbr(ultimo.data.slice(0, 10))}</small></h2>${resumoHTML(ultimo)}<p class="note">Os números do painel já foram recalculados.${ultimo.pendentes ? ` ${ultimo.pendentes} lançamento(s) esperam você em Pendências.` : ''}</p></div>` : '')
     + (prev ? previaHTML(B) : foto.ativo() ? foto.render({ B }) : `<div class="panel"><h2>Importar arquivos <small>extratos e faturas · vários de uma vez</small></h2>
-    <label class="drop" id="drop"><input type="file" id="arqs" multiple accept=".pdf,.csv,.txt,application/pdf,text/csv,image/*,.heic,.heif" hidden><b>${lendo ? 'Lendo arquivos…' : 'Toque para escolher os arquivos'}</b><span class="note">ou arraste para cá · PDF, CSV ou foto · a leitura acontece neste aparelho</span></label>
+    <label class="drop" id="drop"><input type="file" id="arqs" multiple accept=".pdf,.csv,.txt,.ofx,.qfx,.xls,.xlsx,application/pdf,text/csv,image/*,.heic,.heif" hidden><b>${lendo ? 'Lendo arquivos…' : 'Toque para escolher os arquivos'}</b><span class="note">ou arraste para cá · PDF, CSV, OFX ou foto, de qualquer banco · a leitura acontece neste aparelho</span></label>
     <div class="note"><b>Lê hoje:</b> ${SUPORTADOS.map(esc).join(' · ')}.<br><b>Ainda não lê:</b> ${NAO_SUPORTADOS.map(esc).join(' ')}</div>
     <p class="note">Pode enviar arquivos repetidos ou com períodos sobrepostos (ex.: o CSV e o PDF do mesmo mês): cada lançamento tem uma impressão digital (conta, cartão, data, valor e ordem) e o que já existe não é duplicado.</p></div>` + foto.render({ B }))
     + secao('manual', 'Lançamento manual', 'para o que não vem em arquivo', manualHTML(B))
@@ -66,6 +66,11 @@ async function processar(files, ctx) {
   lendo = true; ultimo = null; ctx.rerender();
   try {
     const lidos = []; pdfsEscaneados = []; for (const f of outros) { lidos.push(await lerArquivo(f)); pdfsEscaneados.push(f); }
+    const genericos = lidos.filter(r => r.generico);
+    if (genericos.length) { // banco sem leitor próprio: conferência na tela de revisão, um arquivo de cada vez
+      const resto = lidos.filter(r => !r.generico); pdfsEscaneados = pdfsEscaneados.filter((f, i) => !lidos[i].generico);
+      lendo = false; foto.abrirGenericos(genericos, resto, ctx); return;
+    }
     prev = prepararImportacao(lidos, Base);
   } catch (e) { toast('Erro: ' + e.message, 6000); }
   lendo = false; ctx.rerender();

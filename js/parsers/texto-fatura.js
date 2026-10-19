@@ -78,6 +78,8 @@ export function lerTextoFatura(entrada, ref = {}, opc = {}) {
     }
     if (PAGAMENTO.test(t)) { out.pagamentos.push({ texto: t, valor: v.valor }); anterior = null; continue; }
     if (RESUMO.test(t)) { out.ignoradas.push({ texto: t, motivo: 'linha de resumo/total (não é lançamento)' }); anterior = null; continue; }
+    // PDF de banco sem leitor próprio: linha com valor mas sem data (e sem cabeçalho de dia) é resumo/informação, não compra
+    if (opc.ignorarSemData && !dt && !dataCab) { out.ignoradas.push({ texto: t, motivo: 'sem data (resumo ou informação da fatura)' }); anterior = null; continue; }
     const duvidas = [];
     let desc = t.replace(v.bruto, ' ');
     if (dt) desc = desc.replace(dt.bruto, ' ');

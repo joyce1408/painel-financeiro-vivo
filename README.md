@@ -84,6 +84,7 @@ Para um banco novo, mande um arquivo de exemplo para o Claude. Ele escreve `js/p
 | `tools/sync-e2e.mjs` + `tools/mock-supabase.mjs` | Sincronização (auditoria em `SEGURANCA.md`). |
 | `tools/ocr-fixtures.mjs`, `tools/ocr-test.mjs`, `tools/foto-e2e.mjs` | Fatura por foto, com faturas fictícias. |
 | `tools/regras-e2e.mjs` | Regras fixas guardadas nos dados (não no código): ordem, condições, importar regras, cifradas no aparelho. Só dados fictícios. |
+| `tools/generico-e2e.mjs` | Banco sem leitor próprio: CSV (inclusive o do app do Nubank), OFX e PDF com texto passam pela conferência antes de importar. Só arquivos fictícios. |
 | `tools/local/` (não publicado) | Leitores e ponta a ponta com os seus arquivos e totais reais. |
 
 ## Dados pessoais fora do repositório

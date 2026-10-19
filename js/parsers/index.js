@@ -6,13 +6,13 @@ import * as nubank from './nubank.js';
 export const LEITORES = [bb, nubank];
 
 export const SUPORTADOS = [
-  'Banco do Brasil: extrato de conta corrente em CSV ou PDF',
-  'Nubank: fatura do cartão de crédito em PDF',
+  'Banco do Brasil: extrato em CSV ou PDF (leitura exata, com conferência de saldo)',
+  'Nubank: fatura em PDF (leitura exata, com conferência de total)',
+  'Qualquer outro banco ou cartão: PDF com texto, CSV (inclusive o do app do Nubank) e OFX, por leitura genérica com conferência antes de importar',
   'Foto ou print de fatura/extrato (JPG, PNG; HEIC no Safari) e PDF escaneado: leitura por OCR ou Texto ao Vivo, sempre com revisão antes de importar',
 ];
 export const NAO_SUPORTADOS = [
-  'Cartão Porto: os prints agora podem ser lidos por foto (revisão obrigatória). Se uma cobrança do cartão já entrou por outro caminho (ex.: Pix), a revisão marca como possível duplicata.',
-  'OFX e Excel: ainda sem leitor. Envie um exemplo para o Claude criar o leitor.',
+  'Planilha Excel/Numbers (.xlsx, .xls, .numbers): salve ou exporte como CSV.',
 ];
 
 export function identificar(texto) {
